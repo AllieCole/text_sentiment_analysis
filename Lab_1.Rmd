@@ -1,0 +1,330 @@
+---
+title: "Lab 1"
+author: "Allie Cole"
+date: "4/6/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load packages 
+library(jsonlite)
+library(tidyverse)
+library(tidytext)
+library(ggplot2)
+library(patchwork)
+```
+
+```{r}
+#now pull in from teh API
+
+t <- fromJSON("http://api.nytimes.com/svc/search/v2/articlesearch.json?q=IPCC+report&begin_date=20210120&end_date=20220401&facet_filter=true&api-key=ZxgXK99oAK0QZG5WXmPazQj7EtiQ5foK", flatten = TRUE)
+#the string following key= is the API key
+#?q is what you are querying for
+
+class(t) #what is teh class of object t 
+
+t <- t %>% 
+  data.frame() #make it a data frame 
+
+#how big is it?
+dim(t)
+
+#what variables are we working with?
+names(t)
+
+
+```
+```{r}
+t$response.docs.snippet[9] #this will change 
+
+#assign a snippet to x to use as fodder for stringr functions.  You can follow along using the sentence on the next line.
+
+x <- "Her nomination as secretary of the interior is historic, but as the first Native cabinet member, she would have to strike a delicate balance." 
+
+tolower(x) #lowercase
+str_split(x, ','); str_split(x, 't') #split into multiple strings by comma and t
+str_replace(x, 'historic', 'without precedent') #replace 
+str_replace(x, ' ', '_') #first one, replace space with _
+#how do we replace all of them?
+str_replace_all(x, ' ', '_')
+
+
+str_detect(x, 't'); str_detect(x, 'tive') ### is pattern in the string? T/F
+str_locate(x, 't'); str_locate_all(x, 'as')
+```
+
+```{r}
+term <- "Intergovernmental+Panel+on+Climate+Change" # Need to use + to string together separate words
+begin_date <- "20050120"
+end_date <- "20220401"
+
+#construct the query url using API operators
+baseurl <- paste0("http://api.nytimes.com/svc/search/v2/articlesearch.json?q=",
+                  term, 
+                  "&begin_date=",begin_date,
+                  "&end_date=",end_date,
+                  "&facet_filter=true&api-key=","ZxgXK99oAK0QZG5WXmPazQj7EtiQ5foK", sep="")
+
+#examine our query url
+baseurl
+
+```
+
+This is commented out so that I can knit the document without the query running again
+```{r}
+# #this code allows for obtaining multiple pages of query results
+#  initialQuery <- fromJSON(baseurl)
+# maxPages <- round((initialQuery$response$meta$hits[1] / 10)-1)
+# 
+# 
+# #looping through so you can get more pages, because NYT gives us one page (ten articles) at a time
+# 
+# pages <- list()
+# for(i in 0:maxPages){
+#   nytSearch <- fromJSON(paste0(baseurl, "&page=", i), flatten = TRUE) %>% data.frame()
+#   message("Retrieving page ", i)
+#   pages[[i+1]] <- nytSearch
+#   Sys.sleep(6) #6 allows for it to not time out
+# }
+# class(nytSearch)
+# 
+# 
+# nytdat <- rbind_pages(pages)
+#  saveRDS(object = nytdat,
+#          file = "nytDat.RData")
+```
+
+```{r}
+nytdat <- readRDS("nytDat.RData")
+
+nytdat %>% 
+  group_by(response.docs.type_of_material) %>%
+  summarize(count=n()) %>%
+  mutate(percent = (count / sum(count))*100) %>%
+  ggplot() +
+  geom_bar(aes(y=percent, x=response.docs.type_of_material, fill=response.docs.type_of_material), stat = "identity") + coord_flip()
+```
+
+```{r}
+#change the number of pubs on a day becase there were a ton
+nytdat %>%
+  mutate(pubDay=gsub("T.*","",response.docs.pub_date)) %>%
+  group_by(pubDay) %>%
+  summarise(count=n()) %>%
+  filter(count >= 5) %>%
+  ggplot() +
+  geom_bar(aes(x=reorder(pubDay, count), y=count), stat="identity") + coord_flip()
+```
+
+Now we want the first paragraph because thats all nyt gives us 
+```{r, warning=FALSE}
+paragraph <- names(nytdat)[6] #The 6th column, "response.doc.lead_paragraph", is the one we want here.  
+tokenized <- nytdat %>%
+  unnest_tokens(word, paragraph) #convert text to tidy text format, taking paragrah in and unnest to words
+
+tokenized %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 5) %>% 
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) +
+  geom_col() +
+  labs(y = NULL)
+```
+
+
+```{r}
+#lets run this again but up the word count! 
+
+tokenized %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 500) %>% 
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) +
+  geom_col() +
+  labs(y = NULL)
+```
+
+
+Now we need to get rid of words we don want 
+```{r}
+tokenized <- tokenized %>%
+  anti_join(stop_words)
+
+
+#then we can play around with the word count again to make sure its all goood after removing the stop words 
+tokenized %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 100) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) +
+  geom_col() +
+  labs(y = NULL)
+
+```
+
+
+Now removing some words that show up a lot but we dont care about 
+
+We know that climate change is important but the name of the report is the Intergovernmental Panel on Climate Change, So we don't really need those words. 
+
+```{r}
+#inspect the list of tokens (words) but commented out so we dont get an insane list 
+#tokenized$word
+
+clean_tokens <- str_remove_all(string = tokenized$word, 
+                               pattern = "intergovernmental") 
+
+clean_tokens <- str_remove_all(string = clean_tokens, 
+                               pattern = "panel") 
+
+clean_tokens <- str_remove_all(string = clean_tokens, 
+                               pattern = "climate") 
+
+clean_tokens <- str_remove_all(string = clean_tokens, 
+                               pattern = "change") 
+
+clean_tokens <- str_remove_all(string = clean_tokens, 
+                               pattern = "i.p.c.c") 
+
+#clean_tokens <- str_remove_all(string = clean_tokens, 
+                              # pattern = " ") #trying to remove the spaces that happened from the above lines - not doing what I want but maybe its not a problem
+
+
+clean_tokens <- str_remove_all(clean_tokens, "[:digit:]") #remove all numbers
+
+clean_tokens <- gsub(pattern = "’s", # remove "'s" and replace them with nothing
+                     replacement = '', 
+                     x = clean_tokens)
+
+
+#check that worked but commented out so we dont get an insane list
+#clean_tokens
+
+tokenized$clean <- clean_tokens
+
+#remove the empty strings
+tib <-subset(tokenized, clean!="")
+
+#reassign
+tokenized <- tib
+
+paragraph_plot <- tokenized %>%
+  count(clean, sort = TRUE) %>%
+  filter(n > 10) %>% 
+  slice(1:30) %>% # get the top 30 words
+  mutate(clean = reorder(clean, n)) %>%
+  ggplot(aes(n, clean)) +
+  geom_col() +
+  labs(y = NULL, 
+       title = "Paragraphs")
+```
+
+
+Now we do all that over again for the headlines! 
+
+```{r, warning =FALSE}
+headline <- names(nytdat)[20] #The 20th column, "response.docs.headline.main", is the one we want here.  
+tokenized_2 <- nytdat %>%
+  unnest_tokens(word, headline) #convert text to tidy text format, taking paragrah in and unnest to words
+
+tokenized_2 %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 5) %>% 
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) +
+  geom_col() +
+  labs(y = NULL)
+```
+
+
+```{r, warning =FALSE}
+tokenized_2 <- tokenized_2 %>%
+  anti_join(stop_words)
+
+
+#then we can play around with the word count again to make sure its all goood after removing the stop words 
+tokenized_2 %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) +
+  geom_col() +
+  labs(y = NULL)
+```
+
+```{r}
+#inspect the list of tokens (words)
+#tokenized_2$word
+
+clean_tokens_2 <- str_remove_all(string = tokenized_2$word, 
+                               pattern = "intergovernmental") 
+
+clean_tokens_2 <- str_remove_all(string = clean_tokens_2, 
+                               pattern = "panel") 
+
+clean_tokens_2 <- str_remove_all(string = clean_tokens_2, 
+                               pattern = "climate") 
+
+clean_tokens_2 <- str_remove_all(string = clean_tokens_2, 
+                               pattern = "change") 
+
+clean_tokens_2 <- str_remove_all(string = clean_tokens_2, 
+                               pattern = "i.p.c.c") 
+
+#clean_tokens <- str_remove_all(string = clean_tokens, 
+                              # pattern = " ") #trying to remove the spaces that happened from the above lines - not doing what I want but maybe its not a problem
+
+
+clean_tokens_2 <- str_remove_all(clean_tokens_2, "[:digit:]") #remove all numbers
+
+clean_tokens_2 <- gsub(pattern = "’s", # remove "'s" and replace them with nothing
+                     replacement = '', 
+                     x = clean_tokens_2)
+
+
+#check that worked 
+#clean_tokens_2
+
+tokenized_2$clean <- clean_tokens_2
+
+#remove the empty strings
+tib <-subset(tokenized_2, clean!="")
+
+#reassign
+tokenized_2 <- tib
+
+headline_plot <- tokenized_2 %>%
+  count(clean, sort = TRUE) %>%
+  filter(n > 10) %>% 
+  slice(1:30) %>% # get the top 30 words
+  mutate(clean = reorder(clean, n)) %>%
+  ggplot(aes(n, clean)) +
+  geom_col() +
+  labs(y = NULL, 
+       title = "Headlines") 
+  
+```
+
+Now we can look at the figure side by side to compare them! 
+
+```{r}
+paragraph_plot + headline_plot
+```
+
+There doesn't seem to be much difference in the words used within the paragraphs and the headlines, however the number of times those words are used is different. I do find it interesting that the word "action" is found on the headline list, i imagine it is for a "call to action" or telling people they need to take action, however it is not found in the paragraph. I wonder why not?
+
+
+
+
+
+
+
+
+
+
+
+

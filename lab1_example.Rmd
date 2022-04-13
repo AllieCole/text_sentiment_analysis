@@ -1,0 +1,161 @@
+---
+title: "Lab1 Example"
+author: "Allie Cole"
+date: "4/6/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load packages 
+library(jsonlite)
+library(tidyverse)
+library(tidytext)
+library(ggplot2)
+```
+
+```{r}
+#now pull in from teh API
+
+t <- fromJSON("", flatten = TRUE)
+#the string following key= is the API key
+#?q is what you are querying for
+
+class(t) #what is teh class of object t 
+
+t <- t %>% 
+  data.frame() #make it a data frame 
+
+#how big is it?
+dim(t)
+
+#what variables are we working with?
+names(t)
+
+
+```
+
+
+Now looking at some of teh text, this is a snippet from an article thats under the response.docs.snippet
+
+```{r}
+t$response.docs.snippet[9] #this will change 
+
+#assign a snippet to x to use as fodder for stringr functions.  You can follow along using the sentence on the next line.
+
+x <- "Her nomination as secretary of the interior is historic, but as the first Native cabinet member, she would have to strike a delicate balance." 
+
+tolower(x) #lowercase
+str_split(x, ','); str_split(x, 't') #split into multiple strings by comma and t
+str_replace(x, 'historic', 'without precedent') #replace 
+str_replace(x, ' ', '_') #first one, replace space with _
+#how do we replace all of them?
+str_replace_all(x, ' ', '_')
+
+
+str_detect(x, 't'); str_detect(x, 'tive') ### is pattern in the string? T/F
+str_locate(x, 't'); str_locate_all(x, 'as')
+```
+
+Now we want more data
+
+```{r}
+term <- "Haaland" # Need to use + to string together separate words
+begin_date <- "20210120"
+end_date <- "20220401"
+
+#construct the query url using API operators
+baseurl <- paste0("http://api.nytimes.com/svc/search/v2/articlesearch.json?q=",
+                  term, 
+                  "&begin_date=",begin_date,
+                  "&end_date=",end_date,
+                  "&facet_filter=true&api-key=","NTKBHbsb6XFEkGymGumAiba7n3uBvs8V", sep="")
+
+#examine our query url
+baseurl
+
+```
+
+```{r}
+#this code allows for obtaining multiple pages of query results 
+ initialQuery <- fromJSON(baseurl)
+maxPages <- round((initialQuery$response$meta$hits[1] / 10)-1) 
+
+
+#looping through so you can get more pages, because NYT gives us one page (ten articles) at a time
+
+pages <- list()
+for(i in 0:maxPages){
+  nytSearch <- fromJSON(paste0(baseurl, "&page=", i), flatten = TRUE) %>% data.frame() 
+  message("Retrieving page ", i)
+  pages[[i+1]] <- nytSearch 
+  Sys.sleep(6) #6 allows for it to not time out
+}
+class(nytSearch)
+
+#need to bind the pages and create a tibble from nytDa
+```
+
+```{r}
+nytDat <- read.csv("nytDat.csv") # obtained from 
+
+nytDat %>% 
+  group_by(response.docs.type_of_material) %>%
+  summarize(count=n()) %>%
+  mutate(percent = (count / sum(count))*100) %>%
+  ggplot() +
+  geom_bar(aes(y=percent, x=response.docs.type_of_material, fill=response.docs.type_of_material), stat = "identity") + coord_flip()
+```
+
+```{r}
+nytDat %>%
+  mutate(pubDay=gsub("T.*","",response.docs.pub_date)) %>%
+  group_by(pubDay) %>%
+  summarise(count=n()) %>%
+  filter(count >= 2) %>%
+  ggplot() +
+  geom_bar(aes(x=reorder(pubDay, count), y=count), stat="identity") + coord_flip()
+```
+
+
+Now we want the first paragragh becasue thats all nyt gives us 
+```{r}
+paragraph <- names(nytDat)[6] #The 6th column, "response.doc.lead_paragraph", is the one we want here.  
+tokenized <- nytDat %>%
+  unnest_tokens(word, paragraph) #convert text to tidy text format, taking paragrah in and unnest to words
+
+tokenized %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 20) %>% #illegible with all the words displayed
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) +
+  geom_col() +
+  labs(y = NULL)
+```
+
+```{r}
+data(stop_words)
+
+tokenized <- tokenized %>%
+  anti_join(stop_words)
+
+tokenized %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 75) %>% #illegible with all the words displayed
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) +
+  geom_col() +
+  labs(y = NULL)
+```
+
+
+
+
+
+
+
+
+
+
+

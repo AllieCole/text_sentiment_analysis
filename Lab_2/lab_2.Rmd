@@ -105,7 +105,8 @@ sent_df %>%
 
 ```{r}
 nrc_sent <- get_sentiments('nrc')
-text_words <- dat3  %>%
+
+text_words <- cleanpars  %>%
   unnest_tokens(output = word, input = Text, token = 'words')
  
 sent_words <- text_words %>% #break text into individual words
@@ -126,15 +127,33 @@ sent_word_count <- sent_words %>%
 
 ```{r}
 ggplot(data = sent_word_count) +
-  geom_line(aes(x = Date, y = percent, color = sentiment, group = sentiment)) +
+  geom_line(aes(x = Date, y = percent, color = sentiment)) +
   theme_classic() +
   labs(title = "Sentiment Surrounding Marine Ecology",
        y = "Percent",
        x = "Date")
 ```
-The majority of the words used are words that relate to trust, which, as a marine ecologist myself, I think is really great. There also seems to be a lot of anticipation, that is probably surrounding climate change, rising ocean temperatures, and rising sea levels. I am very interested to see if this changes at all when you increase the time frame that this is over. So I plotted this for a few years of data, and the patterns stays the same over the past 5 years. However I am very interested to know why exactly trust is the most highly ranked word, when there are so many people who now a days don't trust scientists. I wonder if this has to do with where the Nexis library is getting all of these papers from, and anything to do with the nrc groupings. 
+The majority of the words used are words that relate to trust, which, as a marine ecologist myself, I think is really great. There also seems to be a lot of anticipation, that is probably surrounding climate change, rising ocean temperatures, and rising sea levels. I am very interested to see if this changes at all when you increase the time frame that this is over. So I plotted this for a few years of data, and the patterns stays the same over the past 5 years. However I am very interested to know why exactly trust is the most highly ranked word, when there are so many people who now a days don't trust scientists. I wonder if this has to do with where the Nexis library is getting all of these papers from, and anything to do with the nrc groupings. So to look at this I wanted to see what are the main words contributing to the different sentiments. And I found that the main word found in trust was marine, which is probably skewing the data. I am curious why people think that marine is such a trustworthy word. I think it would be interesting to see what this looks like without the word marine. 
 
+```{r sent_counts}
+marine_sent_counts <- text_words %>%
+        group_by(element_id) %>%
+        inner_join(get_sentiments("nrc")) %>%
+        group_by(sentiment) %>%
+        count(word, sentiment, sort = TRUE) %>%
+        ungroup()
 
+marine_sent_counts %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+```
 
 ```{r, include=FALSE}
 my_files <- list.files(pattern = ".docx", path = here("Lab_2", "data_test"),
